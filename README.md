@@ -7,7 +7,7 @@ Distributed locks using PostgreSQL session level advisory locks.
 
 ## About PostgreSQL Advisory Locks
 
-From https://www.postgresql.org/docs/9.6/explicit-locking.html:
+From https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS:
 
 PostgreSQL provides a means for creating locks that have application-defined meanings. These are called advisory locks, because the system does not enforce their use — it is up to the application to use them correctly. Advisory locks can be useful for locking strategies that are an awkward fit for the MVCC model. For example, a common use of advisory locks is to emulate pessimistic locking strategies typical of so-called "flat file" data management systems. While a flag stored in a table could be used for the same purpose, advisory locks are faster, avoid table bloat, and are automatically cleaned up by the server at the end of the session.
 

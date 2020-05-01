@@ -1,0 +1,39 @@
+name: tests
+
+on: [push]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:9.6-alpine
+        env:
+          POSTGRES_DB: pglock
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - name: Set up Go 1.14
+      uses: actions/setup-go@v1
+      with:
+        go-version: 1.14
+      id: go
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+    - name: Get dependencies
+      run: go mod download
+    - name: Lint
+      run: make lint
+    - name: Test
+      env:
+        DATABASE_URL: 'postgres://test:test@localhost:5432/pglock?sslmode=disable'
+      run: make test

@@ -36,4 +36,4 @@ jobs:
     - name: Test
       env:
         DATABASE_URL: 'postgres://test:test@localhost:5432/pglock?sslmode=disable'
-      run: make db-migrate && make test
+      run: make test

@@ -28,39 +28,43 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func newSQLDB() (*sql.DB, error) {
+func newConn() (*sql.Conn, error) {
 	// export DATABASE_URL='postgres://user:pass@localhost:5432/pglock?sslmode=disable'
 	dsn := os.Getenv("DATABASE_URL")
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
-	return db, db.Ping()
+	err = db.Ping()
+	if err != nil {
+		return nil, err
+	}
+	return db.Conn(context.Background())
 }
 
-func closeSQLDB(db *sql.DB) {
-	if err := db.Close(); err != nil {
+func closeConn(conn *sql.Conn) {
+	if err := conn.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func main() {
 	// Create two postgresql sessions
-	db1, err := newSQLDB()
+	conn1, err := newConn()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer closeSQLDB(db1)
-	db2, err := newSQLDB()
+	defer closeConn(conn1)
+	conn2, err := newConn()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer closeSQLDB(db2)
+	defer closeConn(conn2)
 
 	// Set id and create locks
 	id := int64(1)
-	lock1 := pglock.NewLock(db1)
-	lock2 := pglock.NewLock(db2)
+	lock1 := pglock.NewLock(conn1)
+	lock2 := pglock.NewLock(conn2)
 
 	// lock1 get the lock
 	ok, err := lock1.Lock(id)
@@ -95,4 +99,3 @@ lock1.Lock(1)==true
 lock2.Lock(1)==false
 lock2.Lock(1)==true
 ```
-

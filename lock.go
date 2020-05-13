@@ -1,6 +1,7 @@
 package pglock
 
 import (
+	"context"
 	"database/sql"
 	"sync"
 )
@@ -14,8 +15,8 @@ type Locker interface {
 
 // Lock implements the Locker interface.
 type Lock struct {
-	db *sql.DB
-	mu sync.Mutex
+	conn *sql.Conn
+	mu   sync.Mutex
 }
 
 // Lock obtains exclusive session level advisory lock if available.
@@ -26,7 +27,7 @@ func (l *Lock) Lock(id int64) (bool, error) {
 	defer l.mu.Unlock()
 	result := false
 	sqlQuery := "SELECT pg_try_advisory_lock($1)"
-	err := l.db.QueryRow(sqlQuery, id).Scan(&result)
+	err := l.conn.QueryRowContext(context.Background(), sqlQuery, id).Scan(&result)
 	return result, err
 }
 
@@ -37,7 +38,7 @@ func (l *Lock) WaitAndLock(id int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	sqlQuery := "SELECT pg_advisory_lock($1)"
-	_, err := l.db.Exec(sqlQuery, id)
+	_, err := l.conn.ExecContext(context.Background(), sqlQuery, id)
 	return err
 }
 
@@ -46,11 +47,11 @@ func (l *Lock) Unlock(id int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	sqlQuery := "SELECT pg_advisory_unlock($1)"
-	_, err := l.db.Exec(sqlQuery, id)
+	_, err := l.conn.ExecContext(context.Background(), sqlQuery, id)
 	return err
 }
 
-// NewLock returns a Lock with *sql.DB
-func NewLock(db *sql.DB) Lock {
-	return Lock{db: db}
+// NewLock returns a Lock with *sql.Conn
+func NewLock(conn *sql.Conn) Lock {
+	return Lock{conn: conn}
 }

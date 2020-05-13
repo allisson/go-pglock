@@ -1,6 +1,7 @@
 package pglock
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
@@ -20,17 +21,21 @@ func assertEqual(t *testing.T, expected, current interface{}) {
 	}
 }
 
-func newSQLDB() (*sql.DB, error) {
+func newConn() (*sql.Conn, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
-	return db, db.Ping()
+	err = db.Ping()
+	if err != nil {
+		return nil, err
+	}
+	return db.Conn(context.Background())
 }
 
-func closeSQLDB(db *sql.DB) {
-	if err := db.Close(); err != nil {
+func closeConn(conn *sql.Conn) {
+	if err := conn.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -47,25 +52,25 @@ func waitAndLock(id int64, l *Lock, wg *sync.WaitGroup) {
 }
 
 func TestNewLock(t *testing.T) {
-	sqlDB, err := newSQLDB()
+	conn, err := newConn()
 	assertEqual(t, nil, err)
-	defer closeSQLDB(sqlDB)
+	defer closeConn(conn)
 
-	lock := NewLock(sqlDB)
-	assertEqual(t, sqlDB, lock.db)
+	lock := NewLock(conn)
+	assertEqual(t, conn, lock.conn)
 }
 
 func TestLockUnlock(t *testing.T) {
-	db1, err := newSQLDB()
+	conn1, err := newConn()
 	assertEqual(t, nil, err)
-	defer closeSQLDB(db1)
-	db2, err := newSQLDB()
+	defer closeConn(conn1)
+	conn2, err := newConn()
 	assertEqual(t, nil, err)
-	defer closeSQLDB(db2)
+	defer closeConn(conn2)
 
 	id := int64(1)
-	lock1 := NewLock(db1)
-	lock2 := NewLock(db2)
+	lock1 := NewLock(conn1)
+	lock2 := NewLock(conn2)
 
 	ok, err := lock1.Lock(id)
 	assertEqual(t, true, ok)
@@ -87,17 +92,17 @@ func TestLockUnlock(t *testing.T) {
 }
 
 func TestWaitAndLock(t *testing.T) {
-	db1, err := newSQLDB()
+	conn1, err := newConn()
 	assertEqual(t, nil, err)
-	defer closeSQLDB(db1)
-	db2, err := newSQLDB()
+	defer closeConn(conn1)
+	conn2, err := newConn()
 	assertEqual(t, nil, err)
-	defer closeSQLDB(db2)
+	defer closeConn(conn2)
 
 	wg := sync.WaitGroup{}
 	id := int64(1)
-	lock1 := NewLock(db1)
-	lock2 := NewLock(db2)
+	lock1 := NewLock(conn1)
+	lock2 := NewLock(conn2)
 
 	start := time.Now()
 	wg.Add(1)

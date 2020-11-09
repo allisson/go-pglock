@@ -25,7 +25,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/allisson/go-pglock/v2"
+	pglock "github.com/allisson/go-pglock/v2"
 	_ "github.com/lib/pq"
 )
 
@@ -61,11 +61,11 @@ func main() {
 	// Set id and create locks
 	ctx := context.Background()
 	id := int64(1)
-	lock1, err := NewLock(ctx, id, db1)
+	lock1, err := pglock.NewLock(ctx, id, db1)
 	if err != nil {
 		log.Fatal(err)
 	}
-	lock2, err := NewLock(ctx, id, db2)
+	lock2, err := pglock.NewLock(ctx, id, db2)
 	if err != nil {
 		log.Fatal(err)
 	}

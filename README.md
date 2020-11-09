@@ -25,7 +25,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/allisson/go-pglock"
+	"github.com/allisson/go-pglock/v2"
 	_ "github.com/lib/pq"
 )
 

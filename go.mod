@@ -1,4 +1,4 @@
-module github.com/allisson/go-pglock
+module github.com/allisson/go-pglock/v2
 
 go 1.15
 

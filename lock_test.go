@@ -5,104 +5,101 @@ import (
 	"database/sql"
 	"log"
 	"os"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 )
 
-func assertEqual(t *testing.T, expected, current interface{}) {
-	t.Helper()
-
-	if !reflect.DeepEqual(expected, current) {
-		t.Fatalf("assertion_type=Equal, expected_value=%#v, expected_type=%T, current_value=%#v, current_type=%T", expected, expected, current, current)
-	}
-}
-
-func newConn() (*sql.Conn, error) {
+func newDB() (*sql.DB, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
-	err = db.Ping()
-	if err != nil {
-		return nil, err
-	}
-	return db.Conn(context.Background())
+	return db, db.Ping()
 }
 
-func closeConn(conn *sql.Conn) {
-	if err := conn.Close(); err != nil {
+func closeDB(db *sql.DB) {
+	if err := db.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func waitAndLock(id int64, l *Lock, wg *sync.WaitGroup) {
-	if err := l.WaitAndLock(id); err != nil {
+	ctx := context.Background()
+	if err := l.WaitAndLock(ctx); err != nil {
 		log.Fatal(err)
 	}
 	time.Sleep(time.Duration(500) * time.Millisecond)
-	if err := l.Unlock(id); err != nil {
+	if err := l.Unlock(ctx); err != nil {
 		log.Fatal(err)
 	}
 	wg.Done()
 }
 
 func TestNewLock(t *testing.T) {
-	conn, err := newConn()
-	assertEqual(t, nil, err)
-	defer closeConn(conn)
-
-	lock := NewLock(conn)
-	assertEqual(t, conn, lock.conn)
+	db, err := newDB()
+	assert.Equal(t, nil, err)
+	defer closeDB(db)
+	id := int64(10)
+	lock, err := NewLock(context.Background(), id, db)
+	assert.Nil(t, err)
+	assert.Equal(t, id, lock.id)
+	assert.NotNil(t, lock.conn)
 }
 
 func TestLockUnlock(t *testing.T) {
-	conn1, err := newConn()
-	assertEqual(t, nil, err)
-	defer closeConn(conn1)
-	conn2, err := newConn()
-	assertEqual(t, nil, err)
-	defer closeConn(conn2)
+	db1, err := newDB()
+	assert.Nil(t, err)
+	defer closeDB(db1)
+	db2, err := newDB()
+	assert.Nil(t, err)
+	defer closeDB(db2)
 
+	ctx := context.Background()
 	id := int64(1)
-	lock1 := NewLock(conn1)
-	lock2 := NewLock(conn2)
+	lock1, err := NewLock(ctx, id, db1)
+	assert.Nil(t, err)
+	lock2, err := NewLock(ctx, id, db2)
+	assert.Nil(t, err)
 
-	ok, err := lock1.Lock(id)
-	assertEqual(t, true, ok)
-	assertEqual(t, nil, err)
+	ok, err := lock1.Lock(ctx)
+	assert.True(t, ok)
+	assert.Nil(t, err)
 
-	ok, err = lock2.Lock(id)
-	assertEqual(t, false, ok)
-	assertEqual(t, nil, err)
+	ok, err = lock2.Lock(ctx)
+	assert.False(t, ok)
+	assert.Nil(t, err)
 
-	err = lock1.Unlock(id)
-	assertEqual(t, nil, err)
+	err = lock1.Unlock(ctx)
+	assert.Nil(t, err)
 
-	ok, err = lock2.Lock(id)
-	assertEqual(t, true, ok)
-	assertEqual(t, nil, err)
+	ok, err = lock2.Lock(ctx)
+	assert.True(t, ok)
+	assert.Nil(t, err)
 
-	err = lock2.Unlock(id)
-	assertEqual(t, nil, err)
+	err = lock2.Unlock(ctx)
+	assert.Nil(t, err)
 }
 
 func TestWaitAndLock(t *testing.T) {
-	conn1, err := newConn()
-	assertEqual(t, nil, err)
-	defer closeConn(conn1)
-	conn2, err := newConn()
-	assertEqual(t, nil, err)
-	defer closeConn(conn2)
+	db1, err := newDB()
+	assert.Nil(t, err)
+	defer closeDB(db1)
+	db2, err := newDB()
+	assert.Nil(t, err)
+	defer closeDB(db2)
 
+	ctx := context.Background()
 	wg := sync.WaitGroup{}
 	id := int64(1)
-	lock1 := NewLock(conn1)
-	lock2 := NewLock(conn2)
+	lock1, err := NewLock(ctx, id, db1)
+	assert.Nil(t, err)
+	lock2, err := NewLock(ctx, id, db2)
+	assert.Nil(t, err)
 
 	start := time.Now()
 	wg.Add(1)
@@ -111,5 +108,5 @@ func TestWaitAndLock(t *testing.T) {
 	go waitAndLock(id, &lock2, &wg) // wait for 500 milliseconds
 	wg.Wait()
 	stop := time.Since(start)
-	assertEqual(t, true, stop.Milliseconds() >= 1000)
+	assert.True(t, stop.Milliseconds() >= 1000)
 }

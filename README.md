@@ -19,6 +19,7 @@ There are two ways to acquire an advisory lock in PostgreSQL: at session level o
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -28,74 +29,82 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func newConn() (*sql.Conn, error) {
+func newDB() (*sql.DB, error) {
 	// export DATABASE_URL='postgres://user:pass@localhost:5432/pglock?sslmode=disable'
 	dsn := os.Getenv("DATABASE_URL")
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
-	err = db.Ping()
-	if err != nil {
-		return nil, err
-	}
-	return db.Conn(context.Background())
+	return db, db.Ping()
 }
 
-func closeConn(conn *sql.Conn) {
-	if err := conn.Close(); err != nil {
+func closeDB(db *sql.DB) {
+	if err := db.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func main() {
 	// Create two postgresql sessions
-	conn1, err := newConn()
+	db1, err := newDB()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer closeConn(conn1)
-	conn2, err := newConn()
+	defer closeDB(db1)
+	db2, err := newDB()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer closeConn(conn2)
+	defer closeDB(db2)
 
 	// Set id and create locks
+	ctx := context.Background()
 	id := int64(1)
-	lock1 := pglock.NewLock(conn1)
-	lock2 := pglock.NewLock(conn2)
+	lock1, err := NewLock(ctx, id, db1)
+	if err != nil {
+		log.Fatal(err)
+	}
+	lock2, err := NewLock(ctx, id, db2)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// lock1 get the lock
-	ok, err := lock1.Lock(id)
+	ok, err := lock1.Lock(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("lock1.Lock(%v)==%v\n", id, ok)
+	fmt.Printf("lock1.Lock()==%v\n", ok)
 
 	// lock2 try to get the lock
-	ok, err = lock2.Lock(id)
+	ok, err = lock2.Lock(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("lock2.Lock(%v)==%v\n", id, ok)
+	fmt.Printf("lock2.Lock()==%v\n", ok)
 
 	// lock1 release the lock
-	if err := lock1.Unlock(id); err != nil {
+	if err := lock1.Unlock(ctx); err != nil {
 		log.Fatal(err)
 	}
 
 	// lock2 try to get the lock again
-	ok, err = lock2.Lock(id)
+	ok, err = lock2.Lock(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("lock2.Lock(%v)==%v\n", id, ok)
+	fmt.Printf("lock2.Lock()==%v\n", ok)
+
+	// lock2 release the lock
+	if err := lock2.Unlock(ctx); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
 ```go run main.go
-lock1.Lock(1)==true
-lock2.Lock(1)==false
-lock2.Lock(1)==true
+lock1.Lock()==true
+lock2.Lock()==false
+lock2.Lock()==true
 ```

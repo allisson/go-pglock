@@ -10,6 +10,7 @@ type Locker interface {
 	Lock(ctx context.Context) (bool, error)
 	WaitAndLock(ctx context.Context) error
 	Unlock(ctx context.Context) error
+	Close() error
 }
 
 // Lock implements the Locker interface.
@@ -37,14 +38,15 @@ func (l *Lock) WaitAndLock(ctx context.Context) error {
 	return err
 }
 
-// Unlock releases the lock and DB connection.
+// Unlock releases the lock.
 func (l *Lock) Unlock(ctx context.Context) error {
 	sqlQuery := "SELECT pg_advisory_unlock($1)"
 	_, err := l.conn.ExecContext(ctx, sqlQuery, l.id)
-	if err != nil {
-		return err
-	}
-	// Returns the connection to the connection pool
+	return err
+}
+
+// Close closes the DB connection, consequently releasing all locks.
+func (l *Lock) Close() error {
 	return l.conn.Close()
 }
 

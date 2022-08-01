@@ -47,6 +47,7 @@ func TestNewLock(t *testing.T) {
 	id := int64(10)
 	lock, err := NewLock(context.Background(), id, db)
 	assert.Nil(t, err)
+	defer assert.Nil(t, lock.Close())
 	assert.Equal(t, id, lock.id)
 	assert.NotNil(t, lock.conn)
 }
@@ -63,8 +64,10 @@ func TestLockUnlock(t *testing.T) {
 	id := int64(1)
 	lock1, err := NewLock(ctx, id, db1)
 	assert.Nil(t, err)
+	defer lock1.Close()
 	lock2, err := NewLock(ctx, id, db2)
 	assert.Nil(t, err)
+	defer lock2.Close()
 
 	ok, err := lock1.Lock(ctx)
 	assert.True(t, ok)
@@ -79,6 +82,9 @@ func TestLockUnlock(t *testing.T) {
 
 	ok, err = lock2.Lock(ctx)
 	assert.True(t, ok)
+	assert.Nil(t, err)
+
+	err = lock2.Unlock(ctx)
 	assert.Nil(t, err)
 
 	err = lock2.Unlock(ctx)
@@ -98,8 +104,10 @@ func TestWaitAndLock(t *testing.T) {
 	id := int64(1)
 	lock1, err := NewLock(ctx, id, db1)
 	assert.Nil(t, err)
+	defer lock1.Close()
 	lock2, err := NewLock(ctx, id, db2)
 	assert.Nil(t, err)
+	defer lock2.Close()
 
 	start := time.Now()
 	wg.Add(1)

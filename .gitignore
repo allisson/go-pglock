@@ -16,3 +16,6 @@
 
 # bin directory
 bin/
+
+# vscode
+.vscode/

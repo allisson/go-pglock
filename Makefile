@@ -1,9 +1,5 @@
 lint:
-	if [ ! -f ./bin/golangci-lint ] ; \
-	then \
-		curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.47.2; \
-	fi;
-	./bin/golangci-lint run -e gosec
+	golangci-lint run -v
 
 test:
 	go test -covermode=count -coverprofile=count.out -v ./...

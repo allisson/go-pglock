@@ -1,0 +1,13 @@
+version: "2"
+linters:
+  exclusions:
+    paths:
+      - examples/
+  default: standard
+  enable:
+    - gosec
+formatters:
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/allisson/go-pglock

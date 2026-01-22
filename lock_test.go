@@ -75,11 +75,11 @@ func TestLock_BasicAcquisitionAndRelease(t *testing.T) {
 
 	lock1, err := NewLock(ctx, id, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(ctx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// lock1 should acquire the lock
 	ok, err := lock1.Lock(ctx)
@@ -115,7 +115,7 @@ func TestLock_SameSessionMultipleAcquisitions(t *testing.T) {
 
 	lock, err := NewLock(ctx, id, db)
 	require.NoError(t, err)
-	defer lock.Close()
+	defer lock.Close() //nolint:errcheck
 
 	// Acquire lock multiple times
 	ok, err := lock.Lock(ctx)
@@ -148,11 +148,11 @@ func TestLock_Stacking(t *testing.T) {
 
 	lock1, err := NewLock(ctx, id, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(ctx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// Acquire lock twice with lock1
 	ok, err := lock1.Lock(ctx)
@@ -199,11 +199,11 @@ func TestWaitAndLock_BlockingBehavior(t *testing.T) {
 
 	lock1, err := NewLock(ctx, id, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(ctx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// lock1 acquires the lock
 	require.NoError(t, lock1.WaitAndLock(ctx))
@@ -218,7 +218,7 @@ func TestWaitAndLock_BlockingBehavior(t *testing.T) {
 		err := lock2.WaitAndLock(ctx)
 		if err == nil {
 			lock2Acquired.Store(true)
-			lock2.Unlock(ctx)
+			lock2.Unlock(ctx) //nolint:errcheck,gosec
 		}
 	}()
 
@@ -246,15 +246,15 @@ func TestWaitAndLock_ContextCancellation(t *testing.T) {
 
 	lock1, err := NewLock(bgCtx, id, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(bgCtx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// lock1 acquires the lock
 	require.NoError(t, lock1.WaitAndLock(bgCtx))
-	defer lock1.Unlock(bgCtx)
+	defer lock1.Unlock(bgCtx) //nolint:errcheck
 
 	// Create a context with timeout for lock2
 	ctx, cancel := context.WithTimeout(bgCtx, 200*time.Millisecond)
@@ -295,7 +295,7 @@ func TestWaitAndLock_Concurrent(t *testing.T) {
 				t.Errorf("failed to create lock: %v", err)
 				return
 			}
-			defer lock.Close()
+			defer lock.Close() //nolint:errcheck
 
 			// Acquire lock
 			if err := lock.WaitAndLock(ctx); err != nil {
@@ -335,7 +335,7 @@ func TestClose_ReleasesLocks(t *testing.T) {
 
 	lock2, err := NewLock(ctx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// lock1 acquires the lock multiple times
 	ok, err := lock1.Lock(ctx)
@@ -372,7 +372,7 @@ func TestUnlock_ExtraUnlockDoesNotError(t *testing.T) {
 
 	lock, err := NewLock(ctx, id, db)
 	require.NoError(t, err)
-	defer lock.Close()
+	defer lock.Close() //nolint:errcheck
 
 	// Acquire and release normally
 	ok, err := lock.Lock(ctx)
@@ -397,11 +397,11 @@ func TestLock_DifferentIDs(t *testing.T) {
 
 	lock1, err := NewLock(ctx, 100, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(ctx, 200, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	// Both locks should be able to acquire (different IDs)
 	ok, err := lock1.Lock(ctx)
@@ -429,11 +429,11 @@ func TestWaitAndLock_Sequential(t *testing.T) {
 
 	lock1, err := NewLock(ctx, id, db1)
 	require.NoError(t, err)
-	defer lock1.Close()
+	defer lock1.Close() //nolint:errcheck
 
 	lock2, err := NewLock(ctx, id, db2)
 	require.NoError(t, err)
-	defer lock2.Close()
+	defer lock2.Close() //nolint:errcheck
 
 	start := time.Now()
 

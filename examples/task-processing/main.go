@@ -94,7 +94,8 @@ func main() {
 	}
 
 	fmt.Println("Processing tasks...")
-	fmt.Println("Each task will only run once even if multiple instances try to process it.\n")
+	fmt.Println("Each task will only run once even if multiple instances try to process it.")
+	fmt.Println()
 
 	for _, taskID := range tasks {
 		if err := processor.ProcessTask(taskID); err != nil {

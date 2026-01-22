@@ -62,7 +62,8 @@ func main() {
 	}
 
 	fmt.Println("Starting 5 concurrent workers...")
-	fmt.Println("They will compete for the same lock and execute sequentially.\n")
+	fmt.Println("They will compete for the same lock and execute sequentially.")
+	fmt.Println()
 
 	var wg sync.WaitGroup
 	for i := 1; i <= 5; i++ {

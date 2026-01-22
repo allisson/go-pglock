@@ -116,7 +116,8 @@ func main() {
 
 	// Simulate multiple instances trying to become leader
 	fmt.Println("Starting leader election simulation...")
-	fmt.Println("Simulating 3 instances competing for leadership\n")
+	fmt.Println("Simulating 3 instances competing for leadership")
+	fmt.Println()
 
 	ctx := context.Background()
 	var wg sync.WaitGroup

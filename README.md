@@ -1,10 +1,10 @@
-# go-pglock
+# 🔒 go-pglock
 
 [![Build Status](https://github.com/allisson/go-pglock/workflows/tests/badge.svg)](https://github.com/allisson/go-pglock/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/allisson/go-pglock/v3)](https://goreportcard.com/report/github.com/allisson/go-pglock/v3)
 [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/allisson/go-pglock/v3)
 
-Distributed locks using PostgreSQL session level advisory locks.
+🐘 Distributed locks using PostgreSQL session level advisory locks.
 
 ## Table of Contents
 
@@ -30,44 +30,44 @@ Distributed locks using PostgreSQL session level advisory locks.
 - [Contributing](#contributing)
 - [License](#license)
 
-## Overview
+## 📖 Overview
 
 `go-pglock` provides a simple and reliable way to implement distributed locks using PostgreSQL's advisory lock mechanism. This is useful when you need to coordinate access to shared resources across multiple processes or servers.
 
-### Key Features
+### ✨ Key Features
 
-- **Simple API**: Easy-to-use interface for acquiring and releasing locks
-- **Non-blocking locks**: Try to acquire a lock without waiting
-- **Blocking locks**: Wait until a lock becomes available
-- **Read-write locks**: Support for shared (read) and exclusive (write) locks
-- **Context support**: Timeout and cancellation support for all operations
-- **Lock stacking**: Same session can acquire the same lock multiple times
-- **Automatic cleanup**: Locks are automatically released when connections close
-- **No external dependencies**: Uses only PostgreSQL (no Redis, ZooKeeper, etc.)
-- **Battle-tested**: Used in production environments
+- **🎯 Simple API**: Easy-to-use interface for acquiring and releasing locks
+- **⚡ Non-blocking locks**: Try to acquire a lock without waiting
+- **⏳ Blocking locks**: Wait until a lock becomes available
+- **📚 Read-write locks**: Support for shared (read) and exclusive (write) locks
+- **⏱️ Context support**: Timeout and cancellation support for all operations
+- **📦 Lock stacking**: Same session can acquire the same lock multiple times
+- **🧹 Automatic cleanup**: Locks are automatically released when connections close
+- **🔌 No external dependencies**: Uses only PostgreSQL (no Redis, ZooKeeper, etc.)
+- **💪 Battle-tested**: Used in production environments
 
-### When to Use
+### 🎯 When to Use
 
 Use `go-pglock` when you need to:
 
-- Prevent duplicate execution of scheduled jobs across multiple servers
-- Coordinate access to shared resources
-- Implement leader election
-- Ensure only one instance processes a particular task
-- Serialize access to critical sections in distributed systems
-- Manage resource pools across multiple processes
+- 🔄 Prevent duplicate execution of scheduled jobs across multiple servers
+- 🤝 Coordinate access to shared resources
+- 👑 Implement leader election
+- ✅ Ensure only one instance processes a particular task
+- 🔐 Serialize access to critical sections in distributed systems
+- 🎰 Manage resource pools across multiple processes
 
-## Installation
+## 📦 Installation
 
 ```bash
 go get github.com/allisson/go-pglock/v3
 ```
 
 Requirements:
-- Go 1.17 or higher
-- PostgreSQL 9.6 or higher
+- 🔵 Go 1.17 or higher
+- 🐘 PostgreSQL 9.6 or higher
 
-## Quick Start
+## 🚀 Quick Start
 
 ```go
 package main
@@ -120,21 +120,21 @@ func main() {
 }
 ```
 
-## How It Works
+## ⚙️ How It Works
 
 PostgreSQL advisory locks are a powerful feature for implementing distributed locking:
 
-- **Session-level locks**: Locks are held until explicitly released or the database connection closes
-- **Application-defined**: You define the meaning of each lock using a numeric identifier (int64)
-- **Fast and efficient**: No table bloat, faster than row-level locks
-- **Automatic cleanup**: Server automatically releases locks when sessions end
-- **Lock stacking**: A session can acquire the same lock multiple times (requires equal unlocks)
+- **🔗 Session-level locks**: Locks are held until explicitly released or the database connection closes
+- **🏷️ Application-defined**: You define the meaning of each lock using a numeric identifier (int64)
+- **⚡ Fast and efficient**: No table bloat, faster than row-level locks
+- **🧹 Automatic cleanup**: Server automatically releases locks when sessions end
+- **📚 Lock stacking**: A session can acquire the same lock multiple times (requires equal unlocks)
 
 From the [PostgreSQL documentation](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS):
 
 > PostgreSQL provides a means for creating locks that have application-defined meanings. These are called advisory locks, because the system does not enforce their use — it is up to the application to use them correctly. Advisory locks can be useful for locking strategies that are an awkward fit for the MVCC model.
 
-## API Reference
+## 📚 API Reference
 
 ### Types
 
@@ -199,26 +199,26 @@ Releases one level of **shared lock** ownership. Must be called equal to the num
 
 Closes the database connection and releases all locks (both exclusive and shared).
 
-## Lock Types
+## 🔐 Lock Types
 
-### Exclusive Locks (Write Locks)
+### 🔒 Exclusive Locks (Write Locks)
 
 Exclusive locks are mutually exclusive with all other locks (both exclusive and shared):
-- Only one session can hold an exclusive lock at a time
-- No other locks (exclusive or shared) can be acquired while an exclusive lock is held
-- Use for write operations or when you need exclusive access to a resource
-- Acquired with `Lock()` or `WaitAndLock()`
-- Released with `Unlock()`
+- ✅ Only one session can hold an exclusive lock at a time
+- ❌ No other locks (exclusive or shared) can be acquired while an exclusive lock is held
+- ✏️ Use for write operations or when you need exclusive access to a resource
+- 🎯 Acquired with `Lock()` or `WaitAndLock()`
+- 🔓 Released with `Unlock()`
 
-### Shared Locks (Read Locks)
+### 📖 Shared Locks (Read Locks)
 
 Shared locks allow multiple concurrent readers but prevent writers:
-- Multiple sessions can hold shared locks simultaneously
-- Shared locks conflict with exclusive locks (writers)
-- Perfect for read-heavy workloads where multiple readers can safely access a resource
-- Use when you need to read data but prevent writes during the read
-- Acquired with `RLock()` or `WaitAndRLock()`
-- Released with `RUnlock()`
+- 👥 Multiple sessions can hold shared locks simultaneously
+- ⚠️ Shared locks conflict with exclusive locks (writers)
+- 🚀 Perfect for read-heavy workloads where multiple readers can safely access a resource
+- 📚 Use when you need to read data but prevent writes during the read
+- 🎯 Acquired with `RLock()` or `WaitAndRLock()`
+- 🔓 Released with `RUnlock()`
 
 ### Lock Compatibility Matrix
 
@@ -228,7 +228,7 @@ Shared locks allow multiple concurrent readers but prevent writers:
 | Exclusive | ❌ Blocks | ❌ Blocks |
 | Shared | ❌ Blocks | ✅ Succeeds |
 
-## Examples
+## 💡 Examples
 
 ### Basic Lock Usage
 
@@ -1058,9 +1058,9 @@ func (rg *ReportGenerator) GenerateReport(ctx context.Context) error {
 }
 ```
 
-## Best Practices
+## ✅ Best Practices
 
-### 1. Always Close Locks
+### 1. 🔒 Always Close Locks
 
 Use `defer` to ensure locks are closed even if errors occur:
 
@@ -1072,7 +1072,7 @@ if err != nil {
 defer lock.Close() // Always close to release the connection
 ```
 
-### 2. Match Lock and Unlock Calls
+### 2. 🔄 Match Lock and Unlock Calls
 
 Locks stack, so ensure you unlock as many times as you lock:
 
@@ -1098,7 +1098,7 @@ lock.RUnlock(ctx)
 lock.RUnlock(ctx)
 ```
 
-### 3. Use Correct Lock and Unlock Pairs
+### 3. ✅ Use Correct Lock and Unlock Pairs
 
 Always pair the correct lock and unlock methods:
 
@@ -1115,7 +1115,7 @@ lock.RUnlock(ctx)
 // lock.RUnlock(ctx)  // Wrong!
 ```
 
-### 4. Use Context Timeouts
+### 4. ⏱️ Use Context Timeouts
 
 Prevent indefinite waiting with context timeouts:
 
@@ -1128,11 +1128,11 @@ if err := lock.WaitAndLock(ctx); err != nil {
 }
 ```
 
-### 5. Choose Appropriate Lock IDs
+### 5. 🎯 Choose Appropriate Lock IDs
 
-- Use meaningful, deterministic IDs based on resource names
-- Use hash functions for string-based identifiers
-- Document your lock ID allocation strategy
+- 📝 Use meaningful, deterministic IDs based on resource names
+- #️⃣ Use hash functions for string-based identifiers
+- 📋 Document your lock ID allocation strategy
 
 ```go
 // Good: Deterministic based on resource
@@ -1142,7 +1142,7 @@ lockID := hashToInt64("user-" + userID)
 lockID := rand.Int63() // Bad!
 ```
 
-### 6. Handle Lock Acquisition Failures
+### 6. ⚠️ Handle Lock Acquisition Failures
 
 Always check if lock acquisition succeeded:
 
@@ -1156,7 +1156,7 @@ if !acquired {
 }
 ```
 
-### 7. Use Connection Pooling Wisely
+### 7. 🔌 Use Connection Pooling Wisely
 
 Each lock holds a dedicated connection. Consider your connection pool size:
 
@@ -1165,12 +1165,12 @@ Each lock holds a dedicated connection. Consider your connection pool size:
 db.SetMaxOpenConns(50) // Ensure enough connections for locks + queries
 ```
 
-### 8. Choose the Right Lock Type
+### 8. 🎯 Choose the Right Lock Type
 
 Use the appropriate lock type for your use case:
 
-- **Exclusive locks (Lock/Unlock)**: Use when you need to modify data or require exclusive access
-- **Shared locks (RLock/RUnlock)**: Use for read operations where multiple readers can work concurrently
+- **🔒 Exclusive locks (Lock/Unlock)**: Use when you need to modify data or require exclusive access
+- **📖 Shared locks (RLock/RUnlock)**: Use for read operations where multiple readers can work concurrently
 
 ```go
 // Reading data - use shared lock
@@ -1184,12 +1184,12 @@ defer lock.Unlock(ctx)
 // Only one writer, blocks all readers and writers
 ```
 
-### 9. Consider Lock Granularity
+### 9. 🎚️ Consider Lock Granularity
 
-- Fine-grained locks: Better concurrency, more complex
-- Coarse-grained locks: Simpler, but may reduce throughput
+- 🔬 Fine-grained locks: Better concurrency, more complex
+- 🎯 Coarse-grained locks: Simpler, but may reduce throughput
 
-### 10. Testing with Locks
+### 10. 🧪 Testing with Locks
 
 When testing code that uses locks, consider using different lock IDs per test:
 
@@ -1200,7 +1200,7 @@ func TestMyFunction(t *testing.T) {
 }
 ```
 
-## Testing
+## 🧪 Testing
 
 ### Running Tests Locally
 
@@ -1233,9 +1233,9 @@ go test -v ./...
 docker-compose down
 ```
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
-### "pq: database \"pglock\" does not exist"
+### ❌ "pq: database \"pglock\" does not exist"
 
 Create the database:
 
@@ -1243,7 +1243,7 @@ Create the database:
 CREATE DATABASE pglock;
 ```
 
-### "too many connections"
+### ⚠️ "too many connections"
 
 Increase PostgreSQL's `max_connections` or reduce your application's connection pool size:
 
@@ -1251,7 +1251,7 @@ Increase PostgreSQL's `max_connections` or reduce your application's connection 
 db.SetMaxOpenConns(25) // Reduce if hitting connection limits
 ```
 
-### Deadlocks
+### 🔒 Deadlocks
 
 Advisory locks can deadlock if acquired in different orders. Always acquire locks in a consistent order:
 
@@ -1268,30 +1268,30 @@ if someCondition {
 }
 ```
 
-### Lock Not Released
+### 🔓 Lock Not Released
 
 Locks are automatically released when:
-- `Unlock()` is called
-- `Close()` is called
-- Database connection closes
-- Database session ends
+- ✅ `Unlock()` is called
+- ✅ `Close()` is called
+- ✅ Database connection closes
+- ✅ Database session ends
 
 If locks aren't releasing, check for:
-- Missing `Unlock()` calls
-- Connection leaks
-- Application crashes before cleanup
+- ❌ Missing `Unlock()` calls
+- ⚠️ Connection leaks
+- 💥 Application crashes before cleanup
 
-### Context Deadline Exceeded
+### ⏱️ Context Deadline Exceeded
 
 If you see context deadline errors, either:
-- Increase the timeout
-- Investigate why locks are held for so long
-- Use non-blocking `Lock()` instead of `WaitAndLock()`
+- ⏫ Increase the timeout
+- 🔍 Investigate why locks are held for so long
+- 🔄 Use non-blocking `Lock()` instead of `WaitAndLock()`
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

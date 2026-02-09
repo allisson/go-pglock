@@ -6,8 +6,18 @@ linters:
   default: standard
   enable:
     - gosec
+    - gocritic
 formatters:
+  enable:
+    - goimports
+    - golines
   settings:
     goimports:
       local-prefixes:
         - github.com/allisson/go-pglock
+    golines:
+      max-len: 110
+      tab-len: 4
+      shorten-comments: false
+      reformat-tags: true
+      chain-split-dots: true

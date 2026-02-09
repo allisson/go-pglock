@@ -24,8 +24,11 @@ import (
 // across multiple database connections.
 type Locker interface {
 	Lock(ctx context.Context) (bool, error)
+	RLock(ctx context.Context) (bool, error)
 	WaitAndLock(ctx context.Context) error
+	WaitAndRLock(ctx context.Context) error
 	Unlock(ctx context.Context) error
+	RUnlock(ctx context.Context) error
 	Close() error
 }
 
@@ -58,6 +61,28 @@ func (l *Lock) Lock(ctx context.Context) (bool, error) {
 	return result, err
 }
 
+// RLock attempts to obtain a shared session level advisory lock without waiting.
+//
+// This method uses PostgreSQL's pg_try_advisory_lock_shared function, which is non-blocking.
+// It will either obtain the shared lock immediately and return true, or return false if an
+// exclusive lock is already held by another session. Multiple sessions can hold shared locks
+// simultaneously, but shared locks conflict with exclusive locks.
+//
+// Shared locks are ideal for read operations where multiple readers can safely access a
+// resource concurrently, but writers need to be prevented from modifying it during the read.
+//
+// Multiple lock requests stack within the same session, meaning if a shared lock is acquired
+// three times, it must be released three times to be fully released.
+//
+// Returns true if the shared lock was successfully acquired, false if an exclusive lock is
+// held by another session, and an error if the database operation fails.
+func (l *Lock) RLock(ctx context.Context) (bool, error) {
+	result := false
+	sqlQuery := "SELECT pg_try_advisory_lock_shared($1)"
+	err := l.conn.QueryRowContext(ctx, sqlQuery, l.id).Scan(&result)
+	return result, err
+}
+
 // WaitAndLock obtains an exclusive session level advisory lock, waiting if necessary.
 //
 // This method uses PostgreSQL's pg_advisory_lock function, which will block until
@@ -78,6 +103,29 @@ func (l *Lock) WaitAndLock(ctx context.Context) error {
 	return err
 }
 
+// WaitAndRLock obtains a shared session level advisory lock, waiting if necessary.
+//
+// This method uses PostgreSQL's pg_advisory_lock_shared function, which will block until
+// the lock becomes available. If another session holds an exclusive lock on the same
+// resource identifier, this function will wait until the exclusive lock is released.
+// Multiple sessions can hold shared locks concurrently.
+//
+// Shared locks are ideal for read operations where multiple readers can safely access a
+// resource at the same time, but need to prevent writers from modifying it during reads.
+//
+// Multiple lock requests stack within the same session, meaning if a shared lock is acquired
+// three times, it must be released three times to be fully released. If the session already
+// holds the given shared advisory lock, additional requests will always succeed immediately.
+//
+// The lock persists until explicitly released via RUnlock or until the session ends.
+// Returns an error if the database operation fails or if the context is cancelled
+// while waiting for the lock.
+func (l *Lock) WaitAndRLock(ctx context.Context) error {
+	sqlQuery := "SELECT pg_advisory_lock_shared($1)"
+	_, err := l.conn.ExecContext(ctx, sqlQuery, l.id)
+	return err
+}
+
 // Unlock releases a previously acquired advisory lock.
 //
 // This method uses PostgreSQL's pg_advisory_unlock function to release one level
@@ -92,6 +140,25 @@ func (l *Lock) WaitAndLock(ctx context.Context) error {
 // Returns an error if the database operation fails.
 func (l *Lock) Unlock(ctx context.Context) error {
 	sqlQuery := "SELECT pg_advisory_unlock($1)"
+	_, err := l.conn.ExecContext(ctx, sqlQuery, l.id)
+	return err
+}
+
+// RUnlock releases a previously acquired shared advisory lock.
+//
+// This method uses PostgreSQL's pg_advisory_unlock_shared function to release one level
+// of shared lock ownership. Because shared lock requests stack within a session, each
+// RUnlock call only decrements the shared lock count by one. If the same shared lock was
+// acquired multiple times, it must be unlocked the same number of times to be fully released.
+//
+// Note that unlocking a shared lock that is not currently held will not return an error,
+// but may have unexpected consequences in PostgreSQL. It's the caller's responsibility
+// to ensure shared locks and unlocks are properly paired, and to use RUnlock only for
+// locks acquired with RLock or WaitAndRLock (not with Lock or WaitAndLock).
+//
+// Returns an error if the database operation fails.
+func (l *Lock) RUnlock(ctx context.Context) error {
+	sqlQuery := "SELECT pg_advisory_unlock_shared($1)"
 	_, err := l.conn.ExecContext(ctx, sqlQuery, l.id)
 	return err
 }

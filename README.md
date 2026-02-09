@@ -39,6 +39,7 @@ Distributed locks using PostgreSQL session level advisory locks.
 - **Simple API**: Easy-to-use interface for acquiring and releasing locks
 - **Non-blocking locks**: Try to acquire a lock without waiting
 - **Blocking locks**: Wait until a lock becomes available
+- **Read-write locks**: Support for shared (read) and exclusive (write) locks
 - **Context support**: Timeout and cancellation support for all operations
 - **Lock stacking**: Same session can acquire the same lock multiple times
 - **Automatic cleanup**: Locks are automatically released when connections close
@@ -142,8 +143,11 @@ From the [PostgreSQL documentation](https://www.postgresql.org/docs/current/expl
 ```go
 type Locker interface {
     Lock(ctx context.Context) (bool, error)
+    RLock(ctx context.Context) (bool, error)
     WaitAndLock(ctx context.Context) error
+    WaitAndRLock(ctx context.Context) error
     Unlock(ctx context.Context) error
+    RUnlock(ctx context.Context) error
     Close() error
 }
 ```
@@ -169,19 +173,60 @@ Creates a new Lock instance with a dedicated database connection.
 
 #### `Lock(ctx context.Context) (bool, error)`
 
-Attempts to acquire a lock without waiting. Returns immediately with true if acquired, false otherwise.
+Attempts to acquire an **exclusive lock** without waiting. Returns immediately with true if acquired, false otherwise.
+
+#### `RLock(ctx context.Context) (bool, error)`
+
+Attempts to acquire a **shared (read) lock** without waiting. Multiple sessions can hold shared locks simultaneously, but shared locks conflict with exclusive locks. Returns true if acquired, false otherwise.
 
 #### `WaitAndLock(ctx context.Context) error`
 
-Blocks until the lock is acquired. Respects context cancellation and timeouts.
+Blocks until an **exclusive lock** is acquired. Respects context cancellation and timeouts.
+
+#### `WaitAndRLock(ctx context.Context) error`
+
+Blocks until a **shared (read) lock** is acquired. Multiple sessions can acquire shared locks concurrently. Respects context cancellation and timeouts.
 
 #### `Unlock(ctx context.Context) error`
 
-Releases one level of lock ownership. Must be called equal to the number of Lock/WaitAndLock calls.
+Releases one level of **exclusive lock** ownership. Must be called equal to the number of Lock/WaitAndLock calls.
+
+#### `RUnlock(ctx context.Context) error`
+
+Releases one level of **shared lock** ownership. Must be called equal to the number of RLock/WaitAndRLock calls.
 
 #### `Close() error`
 
-Closes the database connection and releases all locks.
+Closes the database connection and releases all locks (both exclusive and shared).
+
+## Lock Types
+
+### Exclusive Locks (Write Locks)
+
+Exclusive locks are mutually exclusive with all other locks (both exclusive and shared):
+- Only one session can hold an exclusive lock at a time
+- No other locks (exclusive or shared) can be acquired while an exclusive lock is held
+- Use for write operations or when you need exclusive access to a resource
+- Acquired with `Lock()` or `WaitAndLock()`
+- Released with `Unlock()`
+
+### Shared Locks (Read Locks)
+
+Shared locks allow multiple concurrent readers but prevent writers:
+- Multiple sessions can hold shared locks simultaneously
+- Shared locks conflict with exclusive locks (writers)
+- Perfect for read-heavy workloads where multiple readers can safely access a resource
+- Use when you need to read data but prevent writes during the read
+- Acquired with `RLock()` or `WaitAndRLock()`
+- Released with `RUnlock()`
+
+### Lock Compatibility Matrix
+
+| Current Lock | Lock() | RLock() |
+|--------------|--------|----------|
+| None | ✅ Succeeds | ✅ Succeeds |
+| Exclusive | ❌ Blocks | ❌ Blocks |
+| Shared | ❌ Blocks | ✅ Succeeds |
 
 ## Examples
 
@@ -736,6 +781,283 @@ func main() {
 }
 ```
 
+### Read-Write Lock: Multiple Readers, Single Writer
+
+Use shared locks to allow multiple readers while preventing writers.
+
+```go
+type DataCache struct {
+	db       *sql.DB
+	recordID string
+	lockID   int64
+}
+
+func NewDataCache(db *sql.DB, recordID string) *DataCache {
+	return &DataCache{
+		db:       db,
+		recordID: recordID,
+		lockID:   hashToInt64("cache-" + recordID),
+	}
+}
+
+// ReadData acquires a shared lock for reading
+func (dc *DataCache) ReadData(ctx context.Context) (string, error) {
+	lock, err := pglock.NewLock(ctx, dc.lockID, dc.db)
+	if err != nil {
+		return "", err
+	}
+	defer lock.Close()
+
+	// Acquire shared lock - multiple readers can hold this simultaneously
+	if err := lock.WaitAndRLock(ctx); err != nil {
+		return "", fmt.Errorf("failed to acquire read lock: %w", err)
+	}
+	defer lock.RUnlock(ctx)
+
+	fmt.Println("Reading data... (shared lock held)")
+	// Simulate reading from database or cache
+	time.Sleep(100 * time.Millisecond)
+	data := "cached-data-for-" + dc.recordID
+
+	return data, nil
+}
+
+// WriteData acquires an exclusive lock for writing
+func (dc *DataCache) WriteData(ctx context.Context, data string) error {
+	lock, err := pglock.NewLock(ctx, dc.lockID, dc.db)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	// Acquire exclusive lock - blocks all other locks (read and write)
+	if err := lock.WaitAndLock(ctx); err != nil {
+		return fmt.Errorf("failed to acquire write lock: %w", err)
+	}
+	defer lock.Unlock(ctx)
+
+	fmt.Println("Writing data... (exclusive lock held)")
+	// Simulate writing to database and invalidating cache
+	time.Sleep(200 * time.Millisecond)
+
+	return nil
+}
+
+func main() {
+	db, _ := sql.Open("postgres", "postgres://user:pass@localhost/mydb?sslmode=disable")
+	defer db.Close()
+
+	cache := NewDataCache(db, "user-123")
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+
+	// Spawn 5 concurrent readers
+	for i := 1; i <= 5; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+			data, err := cache.ReadData(ctx)
+			if err != nil {
+				log.Printf("Reader %d error: %v", readerID, err)
+				return
+			}
+			fmt.Printf("Reader %d got: %s\n", readerID, data)
+		}(i)
+	}
+
+	// Spawn 1 writer after a delay
+	time.Sleep(50 * time.Millisecond)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := cache.WriteData(ctx, "new-data"); err != nil {
+			log.Printf("Writer error: %v", err)
+		}
+		fmt.Println("Writer completed")
+	}()
+
+	wg.Wait()
+}
+```
+
+### Read-Write Lock: Configuration Management
+
+Manage application configuration with frequent reads and rare writes.
+
+```go
+type ConfigManager struct {
+	db     *sql.DB
+	lockID int64
+}
+
+func NewConfigManager(db *sql.DB) *ConfigManager {
+	return &ConfigManager{
+		db:     db,
+		lockID: hashToInt64("app-config"),
+	}
+}
+
+// GetConfig reads configuration (uses shared lock)
+func (cm *ConfigManager) GetConfig(ctx context.Context) (map[string]string, error) {
+	lock, err := pglock.NewLock(ctx, cm.lockID, cm.db)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+
+	// Use shared lock - allows multiple concurrent readers
+	acquired, err := lock.RLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !acquired {
+		return nil, fmt.Errorf("config is being updated, try again")
+	}
+	defer lock.RUnlock(ctx)
+
+	// Read config from database
+	fmt.Println("Reading configuration...")
+	config := map[string]string{
+		"db_host":     "localhost",
+		"db_port":     "5432",
+		"max_workers": "10",
+	}
+
+	return config, nil
+}
+
+// UpdateConfig writes configuration (uses exclusive lock)
+func (cm *ConfigManager) UpdateConfig(ctx context.Context, updates map[string]string) error {
+	lock, err := pglock.NewLock(ctx, cm.lockID, cm.db)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	// Use exclusive lock with timeout - blocks all readers and writers
+	lockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := lock.WaitAndLock(lockCtx); err != nil {
+		return fmt.Errorf("failed to acquire exclusive lock for config update: %w", err)
+	}
+	defer lock.Unlock(context.Background())
+
+	fmt.Println("Updating configuration...")
+	// Write config to database
+	time.Sleep(100 * time.Millisecond)
+
+	fmt.Printf("Configuration updated with %d keys\n", len(updates))
+	return nil
+}
+
+func main() {
+	db, _ := sql.Open("postgres", "postgres://user:pass@localhost/mydb?sslmode=disable")
+	defer db.Close()
+
+	cm := NewConfigManager(db)
+	ctx := context.Background()
+
+	// Multiple services reading config concurrently
+	var wg sync.WaitGroup
+	for i := 1; i <= 3; i++ {
+		wg.Add(1)
+		go func(serviceID int) {
+			defer wg.Done()
+			config, err := cm.GetConfig(ctx)
+			if err != nil {
+				log.Printf("Service %d: %v", serviceID, err)
+				return
+			}
+			fmt.Printf("Service %d loaded %d config keys\n", serviceID, len(config))
+		}(i)
+	}
+
+	// Admin updating config
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		updates := map[string]string{"max_workers": "20"}
+		if err := cm.UpdateConfig(ctx, updates); err != nil {
+			log.Printf("Update failed: %v", err)
+		}
+	}()
+
+	wg.Wait()
+}
+```
+
+### Read-Write Lock: Report Generation
+
+Allow multiple users to view reports while preventing generation conflicts.
+
+```go
+type ReportGenerator struct {
+	db     *sql.DB
+	lockID int64
+}
+
+func NewReportGenerator(db *sql.DB, reportType string) *ReportGenerator {
+	return &ReportGenerator{
+		db:     db,
+		lockID: hashToInt64("report-" + reportType),
+	}
+}
+
+// ViewReport reads the report (uses shared lock)
+func (rg *ReportGenerator) ViewReport(ctx context.Context, userID string) error {
+	lock, err := pglock.NewLock(ctx, rg.lockID, rg.db)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	// Try to acquire shared lock (non-blocking)
+	acquired, err := lock.RLock(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !acquired {
+		return fmt.Errorf("report is being generated, please wait")
+	}
+	defer lock.RUnlock(ctx)
+
+	fmt.Printf("User %s viewing report...\n", userID)
+	time.Sleep(500 * time.Millisecond) // Simulate viewing
+
+	return nil
+}
+
+// GenerateReport creates/updates the report (uses exclusive lock)
+func (rg *ReportGenerator) GenerateReport(ctx context.Context) error {
+	lock, err := pglock.NewLock(ctx, rg.lockID, rg.db)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	// Try to acquire exclusive lock (non-blocking)
+	acquired, err := lock.Lock(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !acquired {
+		return fmt.Errorf("report generation already in progress or being viewed")
+	}
+	defer lock.Unlock(ctx)
+
+	fmt.Println("Generating report...")
+	time.Sleep(2 * time.Second) // Simulate generation
+	fmt.Println("Report generation completed")
+
+	return nil
+}
+```
+
 ## Best Practices
 
 ### 1. Always Close Locks
@@ -764,7 +1086,36 @@ lock.Unlock(ctx)
 lock.Unlock(ctx)
 ```
 
-### 3. Use Context Timeouts
+The same applies to shared locks:
+
+```go
+// Acquired twice
+lock.RLock(ctx)
+lock.RLock(ctx)
+
+// Must unlock twice
+lock.RUnlock(ctx)
+lock.RUnlock(ctx)
+```
+
+### 3. Use Correct Lock and Unlock Pairs
+
+Always pair the correct lock and unlock methods:
+
+```go
+// Correct pairs
+lock.Lock(ctx)   // Use Unlock()
+lock.Unlock(ctx)
+
+lock.RLock(ctx)   // Use RUnlock()
+lock.RUnlock(ctx)
+
+// Wrong - don't mix them!
+// lock.Lock(ctx)
+// lock.RUnlock(ctx)  // Wrong!
+```
+
+### 4. Use Context Timeouts
 
 Prevent indefinite waiting with context timeouts:
 
@@ -777,7 +1128,7 @@ if err := lock.WaitAndLock(ctx); err != nil {
 }
 ```
 
-### 4. Choose Appropriate Lock IDs
+### 5. Choose Appropriate Lock IDs
 
 - Use meaningful, deterministic IDs based on resource names
 - Use hash functions for string-based identifiers
@@ -791,7 +1142,7 @@ lockID := hashToInt64("user-" + userID)
 lockID := rand.Int63() // Bad!
 ```
 
-### 5. Handle Lock Acquisition Failures
+### 6. Handle Lock Acquisition Failures
 
 Always check if lock acquisition succeeded:
 
@@ -805,7 +1156,7 @@ if !acquired {
 }
 ```
 
-### 6. Use Connection Pooling Wisely
+### 7. Use Connection Pooling Wisely
 
 Each lock holds a dedicated connection. Consider your connection pool size:
 
@@ -814,12 +1165,31 @@ Each lock holds a dedicated connection. Consider your connection pool size:
 db.SetMaxOpenConns(50) // Ensure enough connections for locks + queries
 ```
 
-### 7. Consider Lock Granularity
+### 8. Choose the Right Lock Type
+
+Use the appropriate lock type for your use case:
+
+- **Exclusive locks (Lock/Unlock)**: Use when you need to modify data or require exclusive access
+- **Shared locks (RLock/RUnlock)**: Use for read operations where multiple readers can work concurrently
+
+```go
+// Reading data - use shared lock
+acquired, _ := lock.RLock(ctx)
+defer lock.RUnlock(ctx)
+// Multiple readers can read simultaneously
+
+// Writing data - use exclusive lock
+acquired, _ := lock.Lock(ctx)
+defer lock.Unlock(ctx)
+// Only one writer, blocks all readers and writers
+```
+
+### 9. Consider Lock Granularity
 
 - Fine-grained locks: Better concurrency, more complex
 - Coarse-grained locks: Simpler, but may reduce throughput
 
-### 8. Testing with Locks
+### 10. Testing with Locks
 
 When testing code that uses locks, consider using different lock IDs per test:
 

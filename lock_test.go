@@ -465,3 +465,510 @@ func TestWaitAndLock_Sequential(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed.Milliseconds(), int64(600),
 		"sequential lock acquisitions should take cumulative time")
 }
+
+// TestRLock_BasicSharedAcquisition tests that multiple shared locks can be acquired simultaneously.
+func TestRLock_BasicSharedAcquisition(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+	db3 := newDB(t)
+	defer closeDB(t, db3)
+
+	ctx := context.Background()
+	id := int64(1001)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	lock3, err := NewLock(ctx, id, db3)
+	require.NoError(t, err)
+	defer lock3.Close() //nolint:errcheck
+
+	// All three should be able to acquire shared locks
+	ok, err := lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock1 should acquire shared lock")
+
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock2 should acquire shared lock")
+
+	ok, err = lock3.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock3 should acquire shared lock")
+
+	// Clean up
+	require.NoError(t, lock1.RUnlock(ctx))
+	require.NoError(t, lock2.RUnlock(ctx))
+	require.NoError(t, lock3.RUnlock(ctx))
+}
+
+// TestRLock_ExclusiveBlocksShared tests that an exclusive lock prevents shared lock acquisition.
+func TestRLock_ExclusiveBlocksShared(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	ctx := context.Background()
+	id := int64(1002)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// lock1 acquires exclusive lock
+	ok, err := lock1.Lock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock1 should acquire exclusive lock")
+
+	// lock2 should fail to acquire shared lock
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "lock2 should not acquire shared lock when exclusive lock is held")
+
+	// Release exclusive lock
+	require.NoError(t, lock1.Unlock(ctx))
+
+	// Now lock2 should be able to acquire shared lock
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock2 should acquire shared lock after exclusive lock is released")
+
+	require.NoError(t, lock2.RUnlock(ctx))
+}
+
+// TestRLock_SharedBlocksExclusive tests that shared locks prevent exclusive lock acquisition.
+func TestRLock_SharedBlocksExclusive(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	ctx := context.Background()
+	id := int64(1003)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// lock1 acquires shared lock
+	ok, err := lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock1 should acquire shared lock")
+
+	// lock2 should fail to acquire exclusive lock
+	ok, err = lock2.Lock(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "lock2 should not acquire exclusive lock when shared lock is held")
+
+	// Release shared lock
+	require.NoError(t, lock1.RUnlock(ctx))
+
+	// Now lock2 should be able to acquire exclusive lock
+	ok, err = lock2.Lock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "lock2 should acquire exclusive lock after shared lock is released")
+
+	require.NoError(t, lock2.Unlock(ctx))
+}
+
+// TestWaitAndRLock_MultipleReaders tests that multiple readers can wait and acquire shared locks.
+func TestWaitAndRLock_MultipleReaders(t *testing.T) {
+	// Check if DATABASE_URL is set before spawning goroutines
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL environment variable not set")
+	}
+
+	const numReaders = 5
+	id := int64(1004)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	var successCount atomic.Int64
+	startTime := time.Now()
+
+	// Create multiple readers that will acquire shared locks concurrently
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+
+			db := newDB(t)
+			defer closeDB(t, db)
+
+			lock, err := NewLock(ctx, id, db)
+			if err != nil {
+				t.Errorf("reader %d: failed to create lock: %v", readerID, err)
+				return
+			}
+			defer lock.Close() //nolint:errcheck
+
+			// Acquire shared lock
+			if err := lock.WaitAndRLock(ctx); err != nil {
+				t.Errorf("reader %d: failed to acquire shared lock: %v", readerID, err)
+				return
+			}
+
+			successCount.Add(1)
+			time.Sleep(100 * time.Millisecond) // Simulate read work
+
+			if err := lock.RUnlock(ctx); err != nil {
+				t.Errorf("reader %d: failed to release shared lock: %v", readerID, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	elapsed := time.Since(startTime)
+
+	assert.Equal(t, int64(numReaders), successCount.Load(),
+		"all readers should acquire shared locks")
+
+	// All readers should finish in roughly parallel time (not 5x sequential)
+	// Should take around 100ms, not 500ms
+	assert.Less(t, elapsed.Milliseconds(), int64(300),
+		"readers with shared locks should execute in parallel")
+}
+
+// TestWaitAndRLock_BlockedByExclusive tests that shared lock waits when exclusive lock is held.
+func TestWaitAndRLock_BlockedByExclusive(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	ctx := context.Background()
+	id := int64(1005)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// lock1 acquires exclusive lock
+	require.NoError(t, lock1.WaitAndLock(ctx))
+
+	var lock2Acquired atomic.Bool
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// lock2 attempts to acquire shared lock in goroutine
+	go func() {
+		defer wg.Done()
+		err := lock2.WaitAndRLock(ctx)
+		if err == nil {
+			lock2Acquired.Store(true)
+			lock2.RUnlock(ctx) //nolint:errcheck,gosec
+		}
+	}()
+
+	// Give lock2 time to start waiting
+	time.Sleep(100 * time.Millisecond)
+	assert.False(t, lock2Acquired.Load(), "lock2 should be waiting for exclusive lock to release")
+
+	// Release exclusive lock
+	require.NoError(t, lock1.Unlock(ctx))
+
+	// Wait for lock2 to acquire
+	wg.Wait()
+	assert.True(t, lock2Acquired.Load(), "lock2 should have acquired the shared lock")
+}
+
+// TestWaitAndRLock_ContextCancellation tests that WaitAndRLock respects context cancellation.
+func TestWaitAndRLock_ContextCancellation(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	bgCtx := context.Background()
+	id := int64(1006)
+
+	lock1, err := NewLock(bgCtx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(bgCtx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// lock1 acquires exclusive lock
+	require.NoError(t, lock1.WaitAndLock(bgCtx))
+	defer lock1.Unlock(bgCtx) //nolint:errcheck
+
+	// Create a context with timeout for lock2
+	ctx, cancel := context.WithTimeout(bgCtx, 200*time.Millisecond)
+	defer cancel()
+
+	// lock2 should fail due to context timeout
+	err = lock2.WaitAndRLock(ctx)
+	assert.Error(t, err, "WaitAndRLock should fail with context timeout")
+	errMsg := err.Error()
+	assert.True(t,
+		strings.Contains(errMsg, "context deadline exceeded") ||
+			strings.Contains(errMsg, "canceling statement due to user request"),
+		"error should indicate context cancellation, got: %s", errMsg)
+}
+
+// TestRUnlock_Basic tests basic shared lock release behavior.
+func TestRUnlock_Basic(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	ctx := context.Background()
+	id := int64(1007)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// lock1 acquires shared lock
+	ok, err := lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// lock2 can also acquire shared lock
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Release both shared locks
+	require.NoError(t, lock1.RUnlock(ctx))
+	require.NoError(t, lock2.RUnlock(ctx))
+
+	// Now exclusive lock should be acquirable
+	ok, err = lock1.Lock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "exclusive lock should be acquired after all shared locks are released")
+
+	require.NoError(t, lock1.Unlock(ctx))
+}
+
+// TestRLock_Stacking tests that shared locks stack within the same session.
+func TestRLock_Stacking(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+
+	ctx := context.Background()
+	id := int64(1008)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	// Acquire shared lock twice with lock1
+	ok, err := lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "same session should be able to acquire shared lock multiple times")
+
+	// lock2 can also acquire shared lock
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Unlock lock2
+	require.NoError(t, lock2.RUnlock(ctx))
+
+	// Unlock lock1 once
+	require.NoError(t, lock1.RUnlock(ctx))
+
+	// lock1 still holds one shared lock, so exclusive lock should fail
+	ok, err = lock2.Lock(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "exclusive lock should fail when shared lock is still held")
+
+	// Unlock lock1 second time
+	require.NoError(t, lock1.RUnlock(ctx))
+
+	// Now exclusive lock should succeed
+	ok, err = lock2.Lock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "exclusive lock should succeed after all shared locks are released")
+
+	require.NoError(t, lock2.Unlock(ctx))
+}
+
+// TestRWLock_MixedScenarios tests various read-write lock scenarios.
+func TestRWLock_MixedScenarios(t *testing.T) {
+	db1 := newDB(t)
+	defer closeDB(t, db1)
+	db2 := newDB(t)
+	defer closeDB(t, db2)
+	db3 := newDB(t)
+	defer closeDB(t, db3)
+
+	ctx := context.Background()
+	id := int64(1009)
+
+	lock1, err := NewLock(ctx, id, db1)
+	require.NoError(t, err)
+	defer lock1.Close() //nolint:errcheck
+
+	lock2, err := NewLock(ctx, id, db2)
+	require.NoError(t, err)
+	defer lock2.Close() //nolint:errcheck
+
+	lock3, err := NewLock(ctx, id, db3)
+	require.NoError(t, err)
+	defer lock3.Close() //nolint:errcheck
+
+	// Scenario 1: Multiple readers, then one writer
+	ok, err := lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Writer should fail while readers hold locks
+	ok, err = lock3.Lock(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	// Release readers
+	require.NoError(t, lock1.RUnlock(ctx))
+	require.NoError(t, lock2.RUnlock(ctx))
+
+	// Writer should succeed
+	ok, err = lock3.Lock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Scenario 2: Writer holds lock, reader should fail
+	ok, err = lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "reader should fail when writer holds lock")
+
+	// Release writer
+	require.NoError(t, lock3.Unlock(ctx))
+
+	// Scenario 3: Readers can now acquire
+	ok, err = lock1.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = lock2.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Clean up
+	require.NoError(t, lock1.RUnlock(ctx))
+	require.NoError(t, lock2.RUnlock(ctx))
+}
+
+// TestRUnlock_ExtraUnlockDoesNotError verifies that extra shared unlocks don't cause errors.
+func TestRUnlock_ExtraUnlockDoesNotError(t *testing.T) {
+	db := newDB(t)
+	defer closeDB(t, db)
+
+	ctx := context.Background()
+	id := int64(1010)
+
+	lock, err := NewLock(ctx, id, db)
+	require.NoError(t, err)
+	defer lock.Close() //nolint:errcheck
+
+	// Acquire and release normally
+	ok, err := lock.RLock(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	require.NoError(t, lock.RUnlock(ctx))
+
+	// Extra unlock should not error (PostgreSQL behavior)
+	err = lock.RUnlock(ctx)
+	assert.NoError(t, err, "extra shared unlock should not cause error")
+}
+
+// TestRWLock_ParallelReaders tests that multiple readers can truly work in parallel.
+func TestRWLock_ParallelReaders(t *testing.T) {
+	// Check if DATABASE_URL is set before spawning goroutines
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL environment variable not set")
+	}
+
+	const numReaders = 4
+	const workDuration = 200 * time.Millisecond
+	id := int64(1011)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	startTime := time.Now()
+
+	// Create multiple readers that will hold shared locks concurrently
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+
+			db := newDB(t)
+			defer closeDB(t, db)
+
+			lock, err := NewLock(ctx, id, db)
+			if err != nil {
+				t.Errorf("reader %d: failed to create lock: %v", readerID, err)
+				return
+			}
+			defer lock.Close() //nolint:errcheck
+
+			// Acquire shared lock
+			if err := lock.WaitAndRLock(ctx); err != nil {
+				t.Errorf("reader %d: failed to acquire shared lock: %v", readerID, err)
+				return
+			}
+
+			// Simulate reading work
+			time.Sleep(workDuration)
+
+			if err := lock.RUnlock(ctx); err != nil {
+				t.Errorf("reader %d: failed to release shared lock: %v", readerID, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	elapsed := time.Since(startTime)
+
+	// All readers should work in parallel, taking roughly workDuration
+	// Not numReaders * workDuration (which would be sequential)
+	maxExpected := workDuration + 200*time.Millisecond // Allow some overhead
+	assert.Less(t, elapsed, maxExpected,
+		"readers should execute in parallel, not sequentially")
+}
